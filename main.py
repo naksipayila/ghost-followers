@@ -710,13 +710,19 @@ def main():
     print(f"\nThis tool does not produce a definitive result if data is incomplete.")
     print("It uses full Cookie headers and skips unnecessary metadata queries.\n")
 
+    settings_path = Path(SETTINGS_FILE)
     settings = load_settings(SETTINGS_FILE)
-    if settings:
-        print(f"{C}[*]{RESET} {SETTINGS_FILE} found, reading values from there.")
+    if settings_path.exists():
+        if settings:
+            print(f"{C}[*]{RESET} {SETTINGS_FILE} found, reading available values from there.")
+        else:
+            print(f"{Y}[!]{RESET} {SETTINGS_FILE} found, but no usable values were set.")
+    else:
+        print(f"{C}[*]{RESET} {SETTINGS_FILE} not found, asking for account details interactively.")
 
     username = settings.get("USERNAME") or settings.get("KULLANICI_ADI", "")
     cookie_raw = settings.get("COOKIE", "")
-    slow_mode_raw = settings.get("SLOW_MODE") or settings.get("YAVAS_MOD", "no")
+    slow_mode_raw = settings.get("SLOW_MODE") or settings.get("YAVAS_MOD", "yes")
     slow_mode = bool_setting(slow_mode_raw)
 
     if not username:

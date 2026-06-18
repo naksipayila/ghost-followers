@@ -6,7 +6,7 @@ The result is only reliable when Instagram returns complete follower, like, and 
 
 ## Features
 
-- Reads Instagram session cookies from a local settings file.
+- Reads Instagram session cookies from an optional local settings file or asks interactively.
 - Checks followers against likes and comments on recent posts.
 - Supports slow mode to reduce the chance of Instagram rate limits.
 - Uses `followers.txt` first when available, avoiding the Instagram follower endpoint.
@@ -22,7 +22,9 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Edit `settings.txt` and add your Instagram username and full Cookie header from browser DevTools.
+Run the tool and enter your Instagram username and full Cookie header when prompted.
+
+Optionally, create a local `settings.txt` file if you want the tool to reuse those values automatically.
 
 ## Settings
 
@@ -34,11 +36,13 @@ SLOW_MODE = yes
 
 `SLOW_MODE = yes` is recommended. It increases delays between requests and reduces the chance of temporary Instagram restrictions.
 
+If `settings.txt` is missing or `SLOW_MODE` is not set, slow mode is enabled by default.
+
 In slow mode, follower collection waits 75-150 seconds after every 12 followers and cools down for 5-10 minutes after every 120 followers. Post analysis waits 30-90 seconds between posts.
 
 Total runtime depends heavily on follower count. Larger accounts can take several hours in slow mode.
 
-The committed `settings.txt` file is a blank template. Do not commit real Cookie values.
+Do not commit `settings.txt`. It contains private session cookies and is ignored by git.
 
 ## Usage
 
