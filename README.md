@@ -4,6 +4,10 @@ Python CLI tool for finding Instagram followers who did not like or comment on y
 
 The tool is conservative by design. It only writes a definitive ghost follower list when follower, like, and comment data is complete. If Instagram returns partial data, rate limits the session, or blocks an endpoint temporarily, the scan stops and writes an incomplete scan report instead of producing a misleading result.
 
+## Preview
+
+<img src="assets/cli-preview.svg" alt="Ghost Followers CLI preview" width="760">
+
 ## Features
 
 - Analyzes the latest `30` posts by default.

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="500" viewBox="0 0 980 500" role="img" aria-label="Ghost Followers CLI preview">
+  <title>Ghost Followers CLI preview</title>
+  <rect width="980" height="500" rx="18" fill="#0d1117"/>
+  <rect x="0" y="0" width="980" height="46" rx="18" fill="#161b22"/>
+  <circle cx="28" cy="23" r="7" fill="#ff5f56"/>
+  <circle cx="52" cy="23" r="7" fill="#ffbd2e"/>
+  <circle cx="76" cy="23" r="7" fill="#27c93f"/>
+  <text x="490" y="30" text-anchor="middle" fill="#8b949e" font-family="Consolas, 'Courier New', monospace" font-size="15">python main.py</text>
+  <g font-family="Consolas, 'Courier New', monospace" font-size="23" fill="#c9d1d9">
+    <text x="42" y="92">==================================================</text>
+    <text x="42" y="127" fill="#d2a8ff">       INSTAGRAM GHOST FOLLOWER DETECTOR</text>
+    <text x="42" y="162">==================================================</text>
+    <text x="42" y="220">This tool does not produce a definitive result if data is incomplete.</text>
+    <text x="42" y="255">It uses full Cookie headers and skips unnecessary metadata queries.</text>
+    <text x="42" y="325"><tspan fill="#58a6ff">[*]</tspan> settings.txt not found, asking for account details interactively.</text>
+    <text x="42" y="382"><tspan fill="#f0f6fc">Instagram username:</tspan><tspan fill="#8b949e"> _</tspan></text>
+  </g>
+</svg>
