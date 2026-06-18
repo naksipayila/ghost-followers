@@ -22,7 +22,7 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Create `settings.txt` and add your Instagram username and full Cookie header from browser DevTools.
+Edit `settings.txt` and add your Instagram username and full Cookie header from browser DevTools.
 
 ## Settings
 
@@ -38,7 +38,7 @@ In slow mode, follower collection waits 75-150 seconds after every 12 followers 
 
 Total runtime depends heavily on follower count. Larger accounts can take several hours in slow mode.
 
-Do not commit `settings.txt`. It contains private session cookies.
+The committed `settings.txt` file is a blank template. Do not commit real Cookie values.
 
 ## Usage
 

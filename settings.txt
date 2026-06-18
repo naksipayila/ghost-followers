@@ -1,0 +1,14 @@
+# Instagram Ghost Follower Detector - Settings
+# Lines starting with # are comments and ignored.
+
+# Your Instagram username
+USERNAME =
+
+# Full Cookie header from browser DevTools Network tab (any Instagram request)
+COOKIE =
+
+
+# Slow mode: set to yes to increase delays and avoid Instagram rate limits.
+# Posts: 30-90s wait between each. Followers: 75-150s wait after every 12 accounts.
+# Total run time depends on follower count and can take several hours.
+SLOW_MODE = yes
