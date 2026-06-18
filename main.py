@@ -703,6 +703,36 @@ def load_settings(path):
     return settings
 
 
+def write_settings(path, username, cookie_header, slow_mode):
+    cookie_text = " ".join(extract_cookie_text(cookie_header).splitlines()).strip()
+    slow_mode_text = "yes" if slow_mode else "no"
+    settings_text = "\n".join(
+        [
+            "# Instagram Ghost Follower Detector - Settings",
+            "# Lines starting with # are comments and ignored.",
+            "",
+            "# Your Instagram username",
+            f"USERNAME = {username}",
+            "",
+            "# Full Cookie header from browser DevTools Network tab (any Instagram request)",
+            f"COOKIE = {cookie_text}",
+            "",
+            "# Slow mode: set to yes to increase delays and avoid Instagram rate limits.",
+            "# Posts: 30-90s wait between each. Followers: 75-150s wait after every 12 accounts.",
+            "# Total run time depends on follower count and can take several hours.",
+            f"SLOW_MODE = {slow_mode_text}",
+            "",
+        ]
+    )
+
+    try:
+        Path(path).write_text(settings_text, encoding="utf-8")
+    except OSError as exc:
+        return exc
+
+    return None
+
+
 def main():
     print(f"{M}{'=' * 50}{RESET}")
     print(f"{M}       INSTAGRAM GHOST FOLLOWER DETECTOR{RESET}")
@@ -724,6 +754,12 @@ def main():
     cookie_raw = settings.get("COOKIE", "")
     slow_mode_raw = settings.get("SLOW_MODE") or settings.get("YAVAS_MOD", "yes")
     slow_mode = bool_setting(slow_mode_raw)
+    should_save_settings = (
+        not settings_path.exists()
+        or not settings.get("USERNAME")
+        or not settings.get("COOKIE")
+        or ("SLOW_MODE" not in settings and "YAVAS_MOD" not in settings)
+    )
 
     if not username:
         username = input("Instagram username: ").strip()
@@ -763,6 +799,13 @@ def main():
         print(f"\n{R}[-]{RESET} Session verification failed: {exc}")
         print("    Make sure you are logged into Instagram in your browser and the cookie is fresh.")
         sys.exit(1)
+
+    if should_save_settings:
+        settings_error = write_settings(SETTINGS_FILE, logged_in_username, cookie_input, slow_mode)
+        if settings_error:
+            print(f"{Y}[!]{RESET} Could not save {SETTINGS_FILE}: {settings_error}")
+        else:
+            print(f"{G}[+]{RESET} Saved account settings to {SETTINGS_FILE}.")
 
     expected_follower_count = get_user_follower_count(logged_in_user)
     followers_source = "Instagram"

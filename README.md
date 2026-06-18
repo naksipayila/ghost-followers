@@ -24,7 +24,7 @@ pip install -r requirements.txt
 
 Run the tool and enter your Instagram username and full Cookie header when prompted.
 
-Optionally, create a local `settings.txt` file if you want the tool to reuse those values automatically.
+After the session is verified, the tool creates a local `settings.txt` file automatically so the next run can reuse those values. You can also create or edit `settings.txt` manually.
 
 ## Settings
 
