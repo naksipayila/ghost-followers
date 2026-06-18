@@ -5,6 +5,8 @@ settings.txt
 ghost_followers.txt
 scan_report.txt
 followers.txt
+followers.partial.txt
+followers.state.pkl
 
 # Python cache and virtual environments
 __pycache__/

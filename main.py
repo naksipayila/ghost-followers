@@ -1,3 +1,4 @@
+import pickle
 import random
 import re
 import sys
@@ -23,19 +24,36 @@ RESET = Style.RESET_ALL
 # --- Constants ---
 POST_LIMIT = 30
 MAX_RETRIES = 3
+FOLLOWER_BATCH_SIZE = 12
+FOLLOWER_COOLDOWN_BATCH_SIZE = 120
 FOLLOWERS_FILE = "followers.txt"
+PARTIAL_FOLLOWERS_FILE = "followers.partial.txt"
+FOLLOWER_STATE_FILE = "followers.state.pkl"
 RESULT_FILE = "ghost_followers.txt"
 REPORT_FILE = "scan_report.txt"
 
 SETTINGS_FILE = "settings.txt"
 REQUIRED_COOKIES = ("sessionid", "csrftoken", "ds_user_id")
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._]{1,30}$")
-INSTAGRAM_STOP_MESSAGES = ("feedback_required", "checkpoint_required", "challenge_required")
+INSTAGRAM_STOP_MESSAGES = (
+    "feedback_required",
+    "checkpoint_required",
+    "challenge_required",
+    "please wait a few minutes",
+    "too many requests",
+    "rate limit",
+    "429",
+    "401 unauthorized",
+)
 
 # Normal mode delays (seconds)
+FOLLOWER_PAGE_DELAY = (10.0, 20.0)
+FOLLOWER_COOLDOWN_DELAY = (60.0, 120.0)
 FOLLOWER_RETRY_DELAY = (5.0, 10.0)
 POST_DELAY = (2.0, 5.0)
 # Slow mode delays (seconds)
+SLOW_FOLLOWER_PAGE_DELAY = (75.0, 150.0)
+SLOW_FOLLOWER_COOLDOWN_DELAY = (300.0, 600.0)
 SLOW_FOLLOWER_RETRY_DELAY = (20.0, 40.0)
 SLOW_POST_DELAY = (30.0, 90.0)
 SLOW_PRE_FETCH_DELAY = (10.0, 20.0)
@@ -311,27 +329,93 @@ def fetch_with_retries(label, fetcher):
     return ([], 0), last_error
 
 
-def collect_followers(context, user_id, username, slow_mode=False):
+def collect_followers(context, user_id, username, slow_mode=False, expected_count=None):
     last_error = None
+    page_delay = SLOW_FOLLOWER_PAGE_DELAY if slow_mode else FOLLOWER_PAGE_DELAY
+    cooldown_delay = SLOW_FOLLOWER_COOLDOWN_DELAY if slow_mode else FOLLOWER_COOLDOWN_DELAY
     retry_delay = SLOW_FOLLOWER_RETRY_DELAY if slow_mode else FOLLOWER_RETRY_DELAY
+    seed_followers, seed_error = load_followers_from_file(PARTIAL_FOLLOWERS_FILE)
+    if seed_error:
+        print(f"{Y}[!]{RESET} Could not read {PARTIAL_FOLLOWERS_FILE}: {seed_error}")
+
+    follower_state = None
+    if seed_followers:
+        follower_state, state_error = load_follower_state(FOLLOWER_STATE_FILE)
+        print(f"{C}[*]{RESET} Loaded {len(seed_followers)} partial followers from {PARTIAL_FOLLOWERS_FILE}.")
+        if state_error:
+            print(f"{Y}[!]{RESET} Could not read {FOLLOWER_STATE_FILE}: {state_error}")
 
     for attempt in range(1, MAX_RETRIES + 1):
-        followers = {}
+        followers = dict(seed_followers)
+        follower_iterator = build_followers_iterator(context, user_id, username)
+
+        if follower_state is not None:
+            try:
+                follower_iterator.thaw(follower_state)
+                print(f"{C}[*]{RESET} Resuming follower collection from saved cursor.")
+            except Exception as exc:
+                print(f"{Y}[!]{RESET} Could not resume saved follower cursor: {exc}")
+                follower_state = None
+
         try:
-            for follower in build_followers_iterator(context, user_id, username):
+            for fetched_count, follower in enumerate(follower_iterator, 1):
                 followers[normalize_username(follower.username)] = follower.username
+                follower_count = len(followers)
+
+                if fetched_count % FOLLOWER_BATCH_SIZE == 0 and (
+                    expected_count is None or follower_count < expected_count
+                ):
+                    save_error = write_followers_to_file(PARTIAL_FOLLOWERS_FILE, followers)
+                    if save_error:
+                        print(f"{Y}[!]{RESET} Could not save {PARTIAL_FOLLOWERS_FILE}: {save_error}")
+
+                    state_error = write_follower_state(FOLLOWER_STATE_FILE, follower_iterator)
+                    if state_error:
+                        print(f"{Y}[!]{RESET} Could not save {FOLLOWER_STATE_FILE}: {state_error}")
+
+                    if fetched_count % FOLLOWER_COOLDOWN_BATCH_SIZE == 0:
+                        delay_range = cooldown_delay
+                        wait_text = "cooling down"
+                    else:
+                        delay_range = page_delay
+                        wait_text = "waiting"
+
+                    print(f"{C}[*]{RESET} Collected {follower_count} followers; {wait_text} before continuing...")
+                    time.sleep(random.uniform(*delay_range))
+
+            if expected_count is not None and len(followers) < expected_count:
+                save_error = write_followers_to_file(PARTIAL_FOLLOWERS_FILE, followers)
+                if save_error:
+                    print(f"{Y}[!]{RESET} Could not save {PARTIAL_FOLLOWERS_FILE}: {save_error}")
+            else:
+                remove_error = remove_file(FOLLOWER_STATE_FILE)
+                if remove_error:
+                    print(f"{Y}[!]{RESET} Could not remove {FOLLOWER_STATE_FILE}: {remove_error}")
+                remove_error = remove_file(PARTIAL_FOLLOWERS_FILE)
+                if remove_error:
+                    print(f"{Y}[!]{RESET} Could not remove {PARTIAL_FOLLOWERS_FILE}: {remove_error}")
             return followers, None
         except Exception as exc:
             last_error = exc
+            if followers:
+                save_error = write_followers_to_file(PARTIAL_FOLLOWERS_FILE, followers)
+                if save_error:
+                    print(f"{Y}[!]{RESET} Could not save {PARTIAL_FOLLOWERS_FILE}: {save_error}")
+                state_error = write_follower_state(FOLLOWER_STATE_FILE, follower_iterator)
+                if state_error:
+                    print(f"{Y}[!]{RESET} Could not save {FOLLOWER_STATE_FILE}: {state_error}")
+
             if is_instagram_stop_error(exc):
                 print(f"{Y}[!]{RESET} Followers temporarily restricted by Instagram: {exc}")
-                return {}, last_error
+                return followers, last_error
 
             print(f"{Y}[!]{RESET} Followers list failed (attempt {attempt}/{MAX_RETRIES}): {exc}")
             if attempt < MAX_RETRIES:
+                seed_followers = followers
+                follower_state, _ = load_follower_state(FOLLOWER_STATE_FILE)
                 time.sleep(random.uniform(*retry_delay))
 
-    return {}, last_error
+    return followers, last_error
 
 
 def collect_recent_posts(context, username, limit):
@@ -513,6 +597,50 @@ def load_followers_from_file(path):
     return followers, None
 
 
+def write_followers_to_file(path, followers):
+    try:
+        with open(path, "w", encoding="utf-8") as follower_file:
+            for key in sorted(followers):
+                follower_file.write(f"{followers[key]}\n")
+    except OSError as exc:
+        return exc
+
+    return None
+
+
+def load_follower_state(path):
+    state_path = Path(path)
+    if not state_path.exists():
+        return None, None
+
+    try:
+        with open(state_path, "rb") as state_file:
+            return pickle.load(state_file), None
+    except Exception as exc:
+        return None, exc
+
+
+def write_follower_state(path, follower_iterator):
+    try:
+        with open(path, "wb") as state_file:
+            pickle.dump(follower_iterator.freeze(), state_file)
+    except Exception as exc:
+        return exc
+
+    return None
+
+
+def remove_file(path):
+    try:
+        Path(path).unlink()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return exc
+
+    return None
+
+
 def make_scan_error_item(kind, message):
     return {
         "shortcode": kind,
@@ -630,48 +758,60 @@ def main():
         print("    Make sure you are logged into Instagram in your browser and the cookie is fresh.")
         sys.exit(1)
 
-    print(f"\n{C}[*]{RESET} Fetching follower list...")
-    followers, follower_error = collect_followers(loader.context, logged_in_user_id, logged_in_username, slow_mode)
-    followers_source = "Instagram"
     expected_follower_count = get_user_follower_count(logged_in_user)
+    followers_source = "Instagram"
+    follower_error = None
 
-    if not follower_error and expected_follower_count is not None and len(followers) < expected_follower_count:
-        follower_error = RuntimeError(
-            f"Follower list mismatch: got {len(followers)}, expected {expected_follower_count}"
-        )
+    fallback_followers, fallback_error = load_followers_from_file(FOLLOWERS_FILE)
+    if fallback_error:
+        print(f"{Y}[!]{RESET} Could not read {FOLLOWERS_FILE}: {fallback_error}")
 
-    if follower_error:
-        print(f"{R}[-]{RESET} Instagram follower endpoint did not return the follower list.")
-        print(f"    Error: {follower_error}")
-
-        fallback_followers, fallback_error = load_followers_from_file(FOLLOWERS_FILE)
-        if fallback_error:
-            print(f"{R}[-]{RESET} Could not read {FOLLOWERS_FILE}: {fallback_error}")
-
-        if fallback_followers:
-            if expected_follower_count is not None and len(fallback_followers) < expected_follower_count:
-                issues = [
-                    make_scan_error_item(
-                        "FOLLOWER_LIST",
-                        f"{FOLLOWERS_FILE} appears incomplete: "
-                        f"{len(fallback_followers)}/{expected_follower_count}",
-                    )
-                ]
-                write_report(issues)
-                write_incomplete_result_notice()
-                print(f"{R}[-]{RESET} {FOLLOWERS_FILE} appears incomplete; scan aborted.")
-                print(f"    Details written to {REPORT_FILE}.")
-                sys.exit(2)
-
-            followers = fallback_followers
-            followers_source = FOLLOWERS_FILE
-            print(f"{G}[+]{RESET} Loaded {len(followers)} followers from {FOLLOWERS_FILE}.")
-        else:
-            issues = [make_scan_error_item("FOLLOWER_LIST", str(follower_error))]
+    if fallback_followers:
+        if expected_follower_count is not None and len(fallback_followers) < expected_follower_count:
+            issues = [
+                make_scan_error_item(
+                    "FOLLOWER_LIST",
+                    f"{FOLLOWERS_FILE} appears incomplete: "
+                    f"{len(fallback_followers)}/{expected_follower_count}",
+                )
+            ]
             write_report(issues)
             write_incomplete_result_notice()
+            print(f"{R}[-]{RESET} {FOLLOWERS_FILE} appears incomplete; scan aborted.")
+            print(f"    Details written to {REPORT_FILE}.")
+            sys.exit(2)
+
+        followers = fallback_followers
+        followers_source = FOLLOWERS_FILE
+        print(f"{G}[+]{RESET} Loaded {len(followers)} followers from {FOLLOWERS_FILE}.")
+    else:
+        print(f"\n{C}[*]{RESET} Fetching follower list...")
+        followers, follower_error = collect_followers(
+            loader.context,
+            logged_in_user_id,
+            logged_in_username,
+            slow_mode,
+            expected_follower_count,
+        )
+
+        if not follower_error and expected_follower_count is not None and len(followers) < expected_follower_count:
+            follower_error = RuntimeError(
+                f"Follower list mismatch: got {len(followers)}, expected {expected_follower_count}"
+            )
+
+        if follower_error:
+            error_message = str(follower_error)
+            if followers:
+                error_message += f" Partial followers saved: {len(followers)} in {PARTIAL_FOLLOWERS_FILE}."
+            issues = [make_scan_error_item("FOLLOWER_LIST", error_message)]
+            write_report(issues)
+            write_incomplete_result_notice()
+            print(f"{R}[-]{RESET} Instagram follower endpoint did not return the follower list.")
+            print(f"    Error: {follower_error}")
+            if followers:
+                print(f"    Saved {len(followers)} partial followers to {PARTIAL_FOLLOWERS_FILE}.")
             print(f"{R}[-]{RESET} Cannot proceed. Details written to {REPORT_FILE}.")
-            print(f"    Alternative: create {FOLLOWERS_FILE} with one username per line and retry.")
+            print(f"    Safer option: create {FOLLOWERS_FILE} with one username per line and retry.")
             sys.exit(2)
 
     print(f"{G}[+]{RESET} Found {len(followers)} followers. Source: {followers_source}")
