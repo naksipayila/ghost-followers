@@ -1,0 +1,13 @@
+# Instagram Ghost Follower Detector - Settings
+# Lines starting with # are comments and ignored.
+
+# Your Instagram username
+USERNAME = your.instagram.username
+
+# Full Cookie header from browser DevTools Network tab (any Instagram request)
+COOKIE = full_cookie_header_here
+
+# Slow mode: set to yes to increase delays and avoid Instagram rate limits.
+# Posts: 30-90s wait between each. Follower retries: 20-40s wait between attempts.
+# Total run time approximately 35-60 minutes.
+SLOW_MODE = yes

@@ -1,0 +1,20 @@
+# Local settings and secrets
+settings.txt
+
+# Generated output
+ghost_followers.txt
+scan_report.txt
+followers.txt
+
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
