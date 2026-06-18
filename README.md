@@ -1,20 +1,29 @@
 # Instagram Ghost Follower Detector
 
-Python tool for finding followers who did not like or comment on your recent Instagram posts.
+Python CLI tool for finding Instagram followers who did not like or comment on your recent posts.
 
-The result is only reliable when Instagram returns complete follower, like, and comment data. If Instagram rate limits the session or returns partial data, the tool stops and writes an incomplete scan notice instead of producing a misleading result.
+The tool is conservative by design. It only writes a definitive ghost follower list when follower, like, and comment data is complete. If Instagram returns partial data, rate limits the session, or blocks an endpoint temporarily, the scan stops and writes an incomplete scan report instead of producing a misleading result.
 
 ## Features
 
-- Reads Instagram session cookies from an optional local settings file or asks interactively.
-- Checks followers against likes and comments on recent posts.
-- Supports slow mode to reduce the chance of Instagram rate limits.
-- Uses `followers.txt` first when available, avoiding the Instagram follower endpoint.
-- Saves partial follower progress and a resume cursor if Instagram restricts the scan.
-- Writes ghost follower results to `ghost_followers.txt`.
+- Analyzes the latest `30` posts by default.
+- Verifies the Instagram session before scanning.
+- Reads credentials from local `settings.txt` when available.
+- Asks for username and Cookie header interactively when `settings.txt` is missing.
+- Creates or updates local `settings.txt` after a successful session verification.
+- Uses `followers.txt` first when available to avoid Instagram's follower endpoint.
+- Collects followers slowly when `followers.txt` is not available.
+- Saves `followers.partial.txt` and `followers.state.pkl` so restricted follower scans can continue later.
+- Collects likes and comments for each analyzed post.
+- Stops when data is incomplete instead of generating unreliable results.
+- Writes completed ghost follower results to `ghost_followers.txt`.
 - Writes incomplete scan details to `scan_report.txt`.
 
-## Setup
+## Requirements
+
+- Python 3
+- `instaloader==4.15.1`
+- `colorama==0.4.6`
 
 Install dependencies:
 
@@ -22,11 +31,26 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Run the tool and enter your Instagram username and full Cookie header when prompted.
+## Usage
 
-After the session is verified, the tool creates a local `settings.txt` file automatically so the next run can reuse those values. You can also create or edit `settings.txt` manually.
+Run the tool:
+
+```bash
+python main.py
+```
+
+On the first successful run, the tool asks for:
+
+- Instagram username
+- Full Instagram Cookie header from your browser DevTools Network tab
+
+After the session is verified, the tool creates a local `settings.txt` file automatically. Future runs reuse that file unless you delete or edit it.
 
 ## Settings
+
+`settings.txt` is local-only and ignored by git.
+
+Example:
 
 ```txt
 USERNAME = your.instagram.username
@@ -34,45 +58,63 @@ COOKIE = full_cookie_header_here
 SLOW_MODE = yes
 ```
 
-`SLOW_MODE = yes` is recommended. It increases delays between requests and reduces the chance of temporary Instagram restrictions.
+`SLOW_MODE = yes` is recommended and is the default when the setting is missing. In slow mode:
 
-If `settings.txt` is missing or `SLOW_MODE` is not set, slow mode is enabled by default.
+- Follower collection waits `75-150` seconds after every `12` followers.
+- Follower collection cools down for `5-10` minutes after every `120` fetched follower records.
+- Post analysis waits `30-90` seconds between posts.
 
-In slow mode, follower collection waits 75-150 seconds after every 12 followers and cools down for 5-10 minutes after every 120 followers. Post analysis waits 30-90 seconds between posts.
+Runtime depends heavily on follower count and post engagement. Larger accounts can take several hours in slow mode.
 
-Total runtime depends heavily on follower count. Larger accounts can take several hours in slow mode.
+## Follower List Options
 
-Do not commit `settings.txt`. It contains private session cookies and is ignored by git.
+The safest option for larger accounts is to provide a local `followers.txt` file with one username per line.
 
-## Usage
+When `followers.txt` exists, the tool uses it instead of calling Instagram's follower endpoint. This reduces rate-limit risk.
 
-```bash
-python main.py
-```
+If `followers.txt` is not available, the tool collects followers from Instagram slowly. If Instagram restricts the follower endpoint, progress is saved locally:
 
-The tool analyzes the latest posts configured by `POST_LIMIT` in `main.py`.
+- `followers.partial.txt`: follower usernames collected before the restriction
+- `followers.state.pkl`: binary resume cursor used to continue follower collection later
 
-## Output
+These files are ignored by git and should not be committed.
+
+## Output Files
 
 - `ghost_followers.txt`: generated only when the scan completes cleanly.
-- `scan_report.txt`: written when Instagram returns incomplete data or a request fails.
-- `followers.txt`: optional fallback file with one username per line if the Instagram follower endpoint is restricted.
-- `followers.partial.txt`: partial follower progress saved when Instagram restricts follower collection.
-- `followers.state.pkl`: local resume cursor for continuing follower collection after a restriction.
+- `scan_report.txt`: written when the scan is incomplete or an endpoint fails.
+- `followers.partial.txt`: partial follower progress for interrupted follower collection.
+- `followers.state.pkl`: local binary cursor for resuming follower collection.
 
-## Rate Limit Notes
+## Rate Limit Behavior
 
-Instagram may temporarily restrict follower, like, or comment endpoints. Risk increases with larger accounts, higher engagement, and repeated runs.
+Instagram may temporarily restrict follower, like, or comment endpoints. The tool treats these as stop conditions:
 
-Recommended usage:
+- `feedback_required`
+- `checkpoint_required`
+- `challenge_required`
+- `Please wait a few minutes before you try again`
+- `401 Unauthorized`
+- `429`
+- `too many requests`
+- `rate limit`
 
-- Keep `SLOW_MODE = yes`.
-- Prefer `followers.txt` for larger accounts so the scan does not call Instagram's follower endpoint.
-- Avoid running scans repeatedly in a short period.
-- Reduce `POST_LIMIT` if the account has high engagement.
-- Keep follower batch delays enabled for larger accounts.
-- If restricted, use Instagram normally in the browser for a few hours before retrying.
+If this happens, wait a few hours and use Instagram normally in the browser before retrying.
 
 ## Security
 
-Your Cookie header is equivalent to a logged-in session. Keep `settings.txt` private and rotate the session if it was exposed.
+Your Cookie header is equivalent to a logged-in Instagram session.
+
+- Do not share `settings.txt`.
+- Do not commit real Cookie values.
+- Rotate your Instagram session if a Cookie header was exposed.
+- Keep generated local files out of public repositories.
+
+The repository intentionally ignores local settings and runtime files through `.gitignore`.
+
+## Project Files
+
+- `main.py`: main CLI tool.
+- `requirements.txt`: Python dependencies.
+- `README.md`: project documentation.
+- `.gitignore`: excludes local secrets, outputs, caches, and runtime resume files.
