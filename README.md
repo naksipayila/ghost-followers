@@ -19,6 +19,7 @@ The tool is conservative by design. It only writes a definitive ghost follower l
 - Collects followers slowly when `followers.txt` is not available.
 - Saves `followers.partial.txt` and `followers.state.pkl` so restricted follower scans can continue later.
 - Collects likes and comments for each analyzed post.
+- Saves completed post analysis progress to `scan_progress.json` so interrupted scans can resume.
 - Stops when data is incomplete instead of generating unreliable results.
 - Writes completed ghost follower results to `ghost_followers.txt`.
 - Writes incomplete scan details to `scan_report.txt`.
@@ -83,12 +84,19 @@ If `followers.txt` is not available, the tool collects followers from Instagram 
 
 These files are ignored by git and should not be committed.
 
+## Post Analysis Resume
+
+Completed post analysis is saved to `scan_progress.json` after each fully scanned post. If likes or comments fail on a later post, the next run skips already completed posts and retries the remaining posts.
+
+Progress is reused only when the account and recent post list match the saved state. If the recent post list changes, the old progress is ignored and the scan starts fresh.
+
 ## Output Files
 
 - `ghost_followers.txt`: generated only when the scan completes cleanly.
 - `scan_report.txt`: written when the scan is incomplete or an endpoint fails.
 - `followers.partial.txt`: partial follower progress for interrupted follower collection.
 - `followers.state.pkl`: local binary cursor for resuming follower collection.
+- `scan_progress.json`: local post analysis progress for resuming interrupted scans.
 
 ## Rate Limit Behavior
 

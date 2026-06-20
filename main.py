@@ -1,3 +1,4 @@
+import json
 import pickle
 import random
 import re
@@ -31,6 +32,7 @@ PARTIAL_FOLLOWERS_FILE = "followers.partial.txt"
 FOLLOWER_STATE_FILE = "followers.state.pkl"
 RESULT_FILE = "ghost_followers.txt"
 REPORT_FILE = "scan_report.txt"
+SCAN_PROGRESS_FILE = "scan_progress.json"
 
 SETTINGS_FILE = "settings.txt"
 REQUIRED_COOKIES = ("sessionid", "csrftoken", "ds_user_id")
@@ -641,6 +643,56 @@ def remove_file(path):
     return None
 
 
+def load_scan_progress(path):
+    progress_path = Path(path)
+    if not progress_path.exists():
+        return {}, None
+
+    try:
+        raw_progress = progress_path.read_text(encoding="utf-8")
+        progress = json.loads(raw_progress)
+    except (OSError, json.JSONDecodeError) as exc:
+        return {}, exc
+
+    return progress if isinstance(progress, dict) else {}, None
+
+
+def is_scan_progress_compatible(progress, username, post_shortcodes):
+    return (
+        normalize_username(str(progress.get("username", ""))) == normalize_username(username)
+        and progress.get("post_shortcodes") == post_shortcodes
+    )
+
+
+def load_interacted_users_from_progress(progress):
+    interacted_users = progress.get("interacted_users")
+    if not isinstance(interacted_users, dict):
+        return {}
+
+    return {
+        normalize_username(key): value
+        for key, value in interacted_users.items()
+        if normalize_username(key) and isinstance(value, str)
+    }
+
+
+def write_scan_progress(path, username, post_shortcodes, processed_posts, interacted_users):
+    processed_in_order = [shortcode for shortcode in post_shortcodes if shortcode in processed_posts]
+    progress = {
+        "username": normalize_username(username),
+        "post_shortcodes": post_shortcodes,
+        "processed_posts": processed_in_order,
+        "interacted_users": {key: interacted_users[key] for key in sorted(interacted_users)},
+    }
+
+    try:
+        Path(path).write_text(json.dumps(progress, indent=2, sort_keys=True), encoding="utf-8")
+    except OSError as exc:
+        return exc
+
+    return None
+
+
 def make_scan_error_item(kind, message):
     return {
         "shortcode": kind,
@@ -866,7 +918,6 @@ def main():
     print(f"{G}[+]{RESET} Found {len(followers)} followers. Source: {followers_source}")
 
     print(f"\n{C}[*]{RESET} Analyzing last {POST_LIMIT} posts...")
-    interacted_users = {}
     issues = []
     recent_posts, post_list_error = collect_recent_posts(loader.context, logged_in_username, POST_LIMIT)
 
@@ -882,7 +933,32 @@ def main():
         print(f"{R}[-]{RESET} No posts to analyze. Details written to {REPORT_FILE}.")
         sys.exit(2)
 
+    post_shortcodes = [post.shortcode for post in recent_posts]
+    interacted_users = {}
+    processed_posts = set()
+    scan_progress, progress_error = load_scan_progress(SCAN_PROGRESS_FILE)
+    if progress_error:
+        print(f"{Y}[!]{RESET} Could not read {SCAN_PROGRESS_FILE}: {progress_error}")
+    elif scan_progress:
+        if is_scan_progress_compatible(scan_progress, logged_in_username, post_shortcodes):
+            interacted_users = load_interacted_users_from_progress(scan_progress)
+            processed_posts = {
+                shortcode
+                for shortcode in scan_progress.get("processed_posts", [])
+                if shortcode in post_shortcodes
+            }
+            print(
+                f"{C}[*]{RESET} Resuming post analysis from {SCAN_PROGRESS_FILE}: "
+                f"{len(processed_posts)}/{len(recent_posts)} posts already complete."
+            )
+        else:
+            print(f"{Y}[!]{RESET} Ignoring {SCAN_PROGRESS_FILE}; recent post list changed.")
+
     for post_count, post in enumerate(recent_posts, 1):
+        if post.shortcode in processed_posts:
+            print(f"\n  {B}-> Post {post_count}/{len(recent_posts)}{RESET}: {post.shortcode} already processed, skipping.")
+            continue
+
         post_date = post.date_utc.strftime("%d-%m-%Y")
         likes_expected = get_post_like_count(post)
         comments_expected = get_post_comment_count(post)
@@ -921,8 +997,9 @@ def main():
                 comment_usernames = []
                 comments_fetched = 0
 
-        add_usernames(interacted_users, like_usernames)
-        add_usernames(interacted_users, comment_usernames)
+        post_interacted_users = {}
+        add_usernames(post_interacted_users, like_usernames)
+        add_usernames(post_interacted_users, comment_usernames)
 
         likes_complete = like_error is None and (likes_expected is None or likes_fetched >= likes_expected)
         comments_complete = comment_error is None and (
@@ -954,6 +1031,18 @@ def main():
                     "errors": errors,
                 }
             )
+        else:
+            interacted_users.update(post_interacted_users)
+            processed_posts.add(post.shortcode)
+            progress_error = write_scan_progress(
+                SCAN_PROGRESS_FILE,
+                logged_in_username,
+                post_shortcodes,
+                processed_posts,
+                interacted_users,
+            )
+            if progress_error:
+                print(f"{Y}[!]{RESET} Could not save {SCAN_PROGRESS_FILE}: {progress_error}")
 
         if like_error and is_instagram_stop_error(like_error):
             print(f"{R}[-]{RESET} Instagram temporarily restricted the likes endpoint; scan stopped.")
@@ -979,6 +1068,10 @@ def main():
         write_report(issues)
         write_incomplete_result_notice()
         sys.exit(2)
+
+    progress_error = remove_file(SCAN_PROGRESS_FILE)
+    if progress_error:
+        print(f"{Y}[!]{RESET} Could not remove {SCAN_PROGRESS_FILE}: {progress_error}")
 
     ghost_keys = sorted(set(followers) - set(interacted_users))
     ghost_followers = [followers[key] for key in ghost_keys]
