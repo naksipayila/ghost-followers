@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon.png" alt="Ghost Followers logo" width="110">
+  <img src="src/icon.png" alt="Ghost Followers logo" width="110">
 </p>
 
 <h1 align="center">Instagram Ghost Follower Detector</h1>
@@ -16,12 +16,12 @@
 </p>
 
 <p align="center">
-  <img src="assets/cli-preview.svg" alt="Ghost Followers CLI preview" width="820">
+  <img src="src/assets/cli-preview.svg" alt="Ghost Followers CLI preview" width="820">
 </p>
 
 ## Overview
 
-This tool compares your followers with the users who liked or commented on your latest posts. It only generates a ghost follower list when Instagram returns complete data. If a follower, like, or comment endpoint is restricted, the scan stops and writes an incomplete report instead of producing unreliable results.
+This tool compares your followers with the users who liked or commented on your latest posts. It only generates a ghost follower list when Instagram returns complete data. If a follower, like, or comment endpoint is restricted, the scan stops and reports what it found instead of producing unreliable results.
 
 This is not an official Instagram API client. It relies on a logged-in browser Cookie header and Instaloader internals, so Instagram rate limits can still happen.
 
@@ -35,20 +35,14 @@ This is not an official Instagram API client. It relies on a logged-in browser C
 | Followers | Uses `followers.txt` first when available to avoid the follower endpoint. |
 | Resume | Saves follower and post progress so interrupted scans can continue. |
 | Safety | Stops on incomplete data instead of writing misleading results. |
-| Output | Writes final results to `ghost_followers.txt` and failures to `scan_report.txt`. |
+| Output | Writes final results to `ghost_followers.txt`. |
 
 ## Quick Start
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
 
 Run the scanner:
 
 ```bash
-python main.py
+python src\main.py
 ```
 
 On first run, enter your Instagram username and the full Cookie header from your browser DevTools Network tab. After the session is verified, the tool creates a local `settings.txt` file for future runs.
@@ -60,18 +54,15 @@ On first run, enter your Instagram username and the full Cookie header from your
 ```txt
 USERNAME = your.instagram.username
 COOKIE = full_cookie_header_here
-SLOW_MODE = yes
 ```
 
-`SLOW_MODE = yes` is recommended and is the default when the setting is missing.
-
-Slow mode behavior:
+The tool always runs with conservative delays to avoid Instagram rate limits.
 
 | Step | Delay |
 | --- | --- |
-| Follower collection | `75-150` seconds after every `12` followers |
-| Follower cooldown | `5-10` minutes after every `120` fetched follower records |
-| Post analysis | `30-90` seconds between posts |
+| Follower collection | `100-200` seconds after every `12` followers |
+| Follower cooldown | `400-800` seconds after every `120` fetched follower records |
+| Post analysis | `45-120` seconds between posts |
 
 Runtime depends on follower count and post engagement. Larger accounts can take several hours.
 
@@ -107,7 +98,6 @@ Progress is reused only when the same account and recent post list match the sav
 | File | When It Appears |
 | --- | --- |
 | `ghost_followers.txt` | Scan completed cleanly and definitive results were generated. |
-| `scan_report.txt` | Scan was incomplete or an endpoint failed. |
 | `followers.partial.txt` | Follower collection stopped before completion. |
 | `followers.state.pkl` | Follower collection has a saved resume cursor. |
 | `scan_progress.json` | Post interaction analysis has resumable progress. |
@@ -145,17 +135,18 @@ Local secrets and runtime outputs are excluded through `.gitignore`.
 
 ```txt
 .
-├── assets/
-│   └── cli-preview.svg
+├── src/
+│   ├── main.py
+│   ├── icon.png
+│   └── assets/
+│       └── cli-preview.svg
 ├── .gitignore
-├── icon.png
-├── main.py
 ├── README.md
-└── requirements.txt
+├── run.bat
 ```
 
 ## Important Notes
 
-- The default post limit is `30` and is configured as `POST_LIMIT` in `main.py`.
+- The default post limit is `25` and is configured as `POST_LIMIT` in `main.py`.
 - The tool is intentionally conservative; incomplete scans do not produce a definitive ghost follower list.
 - Instagram behavior can change, so endpoint restrictions are expected sometimes.

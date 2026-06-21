@@ -1,2 +1,0 @@
-instaloader==4.15.1
-colorama==0.4.6

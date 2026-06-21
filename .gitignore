@@ -3,7 +3,6 @@ settings.txt
 
 # Generated output
 ghost_followers.txt
-scan_report.txt
 followers.txt
 followers.partial.txt
 followers.state.pkl

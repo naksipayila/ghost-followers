@@ -2,14 +2,33 @@ import json
 import pickle
 import random
 import re
+import subprocess
 import sys
 import time
-from colorama import init, Fore, Style
 from getpass import getpass
 from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 
-import instaloader
+
+def _install(pkg):
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", pkg],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+try:
+    from colorama import init, Fore, Style
+except ImportError:
+    _install("colorama==0.4.6")
+    from colorama import init, Fore, Style
+
+try:
+    import instaloader
+except ImportError:
+    _install("instaloader==4.15.1")
+    import instaloader
 
 init(autoreset=True)
 
@@ -23,7 +42,7 @@ B = Style.BRIGHT                # bold
 RESET = Style.RESET_ALL
 
 # --- Constants ---
-POST_LIMIT = 30
+POST_LIMIT = 25
 MAX_RETRIES = 3
 FOLLOWER_BATCH_SIZE = 12
 FOLLOWER_COOLDOWN_BATCH_SIZE = 120
@@ -31,7 +50,6 @@ FOLLOWERS_FILE = "followers.txt"
 PARTIAL_FOLLOWERS_FILE = "followers.partial.txt"
 FOLLOWER_STATE_FILE = "followers.state.pkl"
 RESULT_FILE = "ghost_followers.txt"
-REPORT_FILE = "scan_report.txt"
 SCAN_PROGRESS_FILE = "scan_progress.json"
 
 SETTINGS_FILE = "settings.txt"
@@ -48,17 +66,12 @@ INSTAGRAM_STOP_MESSAGES = (
     "401 unauthorized",
 )
 
-# Normal mode delays (seconds)
-FOLLOWER_PAGE_DELAY = (10.0, 20.0)
-FOLLOWER_COOLDOWN_DELAY = (60.0, 120.0)
-FOLLOWER_RETRY_DELAY = (5.0, 10.0)
-POST_DELAY = (2.0, 5.0)
-# Slow mode delays (seconds)
-SLOW_FOLLOWER_PAGE_DELAY = (75.0, 150.0)
-SLOW_FOLLOWER_COOLDOWN_DELAY = (300.0, 600.0)
-SLOW_FOLLOWER_RETRY_DELAY = (20.0, 40.0)
-SLOW_POST_DELAY = (30.0, 90.0)
-SLOW_PRE_FETCH_DELAY = (10.0, 20.0)
+# Delays between Instagram requests (seconds)
+FOLLOWER_PAGE_DELAY = (100.0, 200.0)
+FOLLOWER_COOLDOWN_DELAY = (400.0, 800.0)
+FOLLOWER_RETRY_DELAY = (30.0, 60.0)
+POST_DELAY = (45.0, 120.0)
+PRE_FETCH_DELAY = (15.0, 30.0)
 
 
 def normalize_username(username):
@@ -331,11 +344,8 @@ def fetch_with_retries(label, fetcher):
     return ([], 0), last_error
 
 
-def collect_followers(context, user_id, username, slow_mode=False, expected_count=None):
+def collect_followers(context, user_id, username, expected_count=None):
     last_error = None
-    page_delay = SLOW_FOLLOWER_PAGE_DELAY if slow_mode else FOLLOWER_PAGE_DELAY
-    cooldown_delay = SLOW_FOLLOWER_COOLDOWN_DELAY if slow_mode else FOLLOWER_COOLDOWN_DELAY
-    retry_delay = SLOW_FOLLOWER_RETRY_DELAY if slow_mode else FOLLOWER_RETRY_DELAY
     seed_followers, seed_error = load_followers_from_file(PARTIAL_FOLLOWERS_FILE)
     if seed_error:
         print(f"{Y}[!]{RESET} Could not read {PARTIAL_FOLLOWERS_FILE}: {seed_error}")
@@ -377,12 +387,12 @@ def collect_followers(context, user_id, username, slow_mode=False, expected_coun
                     if state_error:
                         print(f"{Y}[!]{RESET} Could not save {FOLLOWER_STATE_FILE}: {state_error}")
 
-                    if fetched_count % FOLLOWER_COOLDOWN_BATCH_SIZE == 0:
-                        delay_range = cooldown_delay
-                        wait_text = "cooling down"
-                    else:
-                        delay_range = page_delay
-                        wait_text = "waiting"
+                if fetched_count % FOLLOWER_COOLDOWN_BATCH_SIZE == 0:
+                    delay_range = FOLLOWER_COOLDOWN_DELAY
+                    wait_text = "cooling down"
+                else:
+                    delay_range = FOLLOWER_PAGE_DELAY
+                    wait_text = "waiting"
 
                     remaining = f" ({expected_count - follower_count} remaining)" if expected_count else ""
                     print(f"{C}[*]{RESET} Collected {follower_count}{remaining} followers; {wait_text} before continuing...")
@@ -418,7 +428,7 @@ def collect_followers(context, user_id, username, slow_mode=False, expected_coun
             if attempt < MAX_RETRIES:
                 seed_followers = followers
                 follower_state, _ = load_follower_state(FOLLOWER_STATE_FILE)
-                time.sleep(random.uniform(*retry_delay))
+                time.sleep(random.uniform(*FOLLOWER_RETRY_DELAY))
 
     return followers, last_error
 
@@ -696,42 +706,6 @@ def write_scan_progress(path, username, post_shortcodes, processed_posts, intera
     return None
 
 
-def make_scan_error_item(kind, message):
-    return {
-        "shortcode": kind,
-        "date": "-",
-        "likes_expected": "-",
-        "likes_fetched": "-",
-        "comments_expected": "-",
-        "comments_fetched": "-",
-        "errors": [message],
-    }
-
-
-def write_report(issues):
-    with open(REPORT_FILE, "w", encoding="utf-8") as report:
-        report.write("Scan incomplete. No definitive ghost follower list generated.\n")
-        report.write("Details:\n")
-        for item in issues:
-            report.write(
-                f"- {item['shortcode']} ({item['date']}): "
-                f"likes {item['likes_fetched']}/{item['likes_expected']}, "
-                f"comments {item['comments_fetched']}/{item['comments_expected']}"
-            )
-            if item["errors"]:
-                report.write(f"; errors: {' | '.join(item['errors'])}")
-            report.write("\n")
-
-
-def write_incomplete_result_notice():
-    with open(RESULT_FILE, "w", encoding="utf-8") as result:
-        result.write("Scan incomplete. See scan_report.txt for details.\n")
-
-
-def bool_setting(value):
-    return value.strip().lower() in ("evet", "yes", "true", "1")
-
-
 def load_settings(path):
     settings_path = Path(path)
     if not settings_path.exists():
@@ -758,9 +732,8 @@ def load_settings(path):
     return settings
 
 
-def write_settings(path, username, cookie_header, slow_mode):
+def write_settings(path, username, cookie_header):
     cookie_text = " ".join(extract_cookie_text(cookie_header).splitlines()).strip()
-    slow_mode_text = "yes" if slow_mode else "no"
     settings_text = "\n".join(
         [
             "# Instagram Ghost Follower Detector - Settings",
@@ -771,11 +744,6 @@ def write_settings(path, username, cookie_header, slow_mode):
             "",
             "# Full Cookie header from browser DevTools Network tab (any Instagram request)",
             f"COOKIE = {cookie_text}",
-            "",
-            "# Slow mode: set to yes to increase delays and avoid Instagram rate limits.",
-            "# Posts: 30-90s wait between each. Followers: 75-150s wait after every 12 accounts.",
-            "# Total run time depends on follower count and can take several hours.",
-            f"SLOW_MODE = {slow_mode_text}",
             "",
         ]
     )
@@ -795,6 +763,14 @@ def main():
     print(f"\nThis tool does not produce a definitive result if data is incomplete.")
     print("It uses full Cookie headers and skips unnecessary metadata queries.\n")
 
+    if "--reset" in sys.argv:
+        for f in [PARTIAL_FOLLOWERS_FILE, FOLLOWER_STATE_FILE, SCAN_PROGRESS_FILE]:
+            err = remove_file(f)
+            if err:
+                print(f"{Y}[!]{RESET} Could not remove {f}: {err}")
+        print(f"{G}[+]{RESET} Resume files deleted. Ready for a fresh start.")
+        sys.exit(0)
+
     settings_path = Path(SETTINGS_FILE)
     settings = load_settings(SETTINGS_FILE)
     if settings_path.exists():
@@ -805,15 +781,12 @@ def main():
     else:
         print(f"{C}[*]{RESET} {SETTINGS_FILE} not found, asking for account details interactively.")
 
-    username = settings.get("USERNAME") or settings.get("KULLANICI_ADI", "")
+    username = settings.get("USERNAME", "")
     cookie_raw = settings.get("COOKIE", "")
-    slow_mode_raw = settings.get("SLOW_MODE") or settings.get("YAVAS_MOD", "yes")
-    slow_mode = bool_setting(slow_mode_raw)
     should_save_settings = (
         not settings_path.exists()
         or not settings.get("USERNAME")
         or not settings.get("COOKIE")
-        or ("SLOW_MODE" not in settings and "YAVAS_MOD" not in settings)
     )
 
     if not username:
@@ -826,11 +799,6 @@ def main():
     else:
         print("Cookie: read from settings file.")
         cookie_input = cookie_raw
-
-    if slow_mode:
-        print(f"{Y}Mode: SLOW{RESET} (delays increased to avoid Instagram rate limits)")
-    else:
-        print(f"{G}Mode: NORMAL{RESET}")
 
     if not username or not cookie_input:
         print(f"{R}[-]{RESET} Username and Cookie header cannot be empty.")
@@ -850,13 +818,35 @@ def main():
         logged_in_username = logged_in_user["username"]
         logged_in_user_id = logged_in_user["id"]
         print(f"{G}[+]{RESET} Session verified: @{logged_in_username}")
+
+        resume_files = [PARTIAL_FOLLOWERS_FILE, FOLLOWER_STATE_FILE, SCAN_PROGRESS_FILE]
+        if any(Path(f).exists() for f in resume_files):
+            print(f"\n{C}[*]{RESET} Incomplete scan detected from a previous run.")
+            choice = input("    Resume from where you left off? [Y/n]: ").strip().lower()
+            if choice in ("n", "no"):
+                print(f"\n    {C}[r]{RESET} Restart - keep current login, clear progress and rescan")
+                print(f"    {R}[c]{RESET} Clear   - delete progress AND settings, then exit")
+                sub = input(f"\n    {B}Choice [r/c]:{RESET} ").strip().lower()
+                if sub in ("c", "clear"):
+                    for f in resume_files:
+                        remove_file(f)
+                    remove_file(SETTINGS_FILE)
+                    print(f"{G}[+]{RESET} Cleared progress and settings. Run again to start fresh.")
+                    sys.exit(0)
+                else:
+                    for f in resume_files:
+                        remove_file(f)
+                    print(f"{G}[+]{RESET} Cleared previous progress. Starting fresh.\n")
+            else:
+                print(f"{G}[+]{RESET} Resuming from previous progress.\n")
+
     except Exception as exc:
         print(f"\n{R}[-]{RESET} Session verification failed: {exc}")
         print("    Make sure you are logged into Instagram in your browser and the cookie is fresh.")
         sys.exit(1)
 
     if should_save_settings:
-        settings_error = write_settings(SETTINGS_FILE, logged_in_username, cookie_input, slow_mode)
+        settings_error = write_settings(SETTINGS_FILE, logged_in_username, cookie_input)
         if settings_error:
             print(f"{Y}[!]{RESET} Could not save {SETTINGS_FILE}: {settings_error}")
         else:
@@ -872,17 +862,8 @@ def main():
 
     if fallback_followers:
         if expected_follower_count is not None and len(fallback_followers) < expected_follower_count:
-            issues = [
-                make_scan_error_item(
-                    "FOLLOWER_LIST",
-                    f"{FOLLOWERS_FILE} appears incomplete: "
-                    f"{len(fallback_followers)}/{expected_follower_count}",
-                )
-            ]
-            write_report(issues)
-            write_incomplete_result_notice()
-            print(f"{R}[-]{RESET} {FOLLOWERS_FILE} appears incomplete; scan aborted.")
-            print(f"    Details written to {REPORT_FILE}.")
+            print(f"{R}[-]{RESET} {FOLLOWERS_FILE} appears incomplete "
+                  f"({len(fallback_followers)}/{expected_follower_count}); scan aborted.")
             sys.exit(2)
 
         followers = fallback_followers
@@ -894,7 +875,6 @@ def main():
             loader.context,
             logged_in_user_id,
             logged_in_username,
-            slow_mode,
             expected_follower_count,
         )
 
@@ -904,44 +884,31 @@ def main():
             )
 
         if follower_error:
-            error_message = str(follower_error)
             if followers:
-                error_message += f" Partial followers saved: {len(followers)} in {PARTIAL_FOLLOWERS_FILE}."
-            partial_path = Path(PARTIAL_FOLLOWERS_FILE)
-            if followers and partial_path.exists():
-                issues = [make_scan_error_item("FOLLOWER_LIST", error_message)]
-                write_report(issues)
                 print(f"{Y}[!]{RESET} Follower list is incomplete ({len(followers)}/{expected_count_text(expected_follower_count)}).")
                 print(f"    Continuing with available data. Results may be incomplete.")
                 print(f"    To start fresh, delete {PARTIAL_FOLLOWERS_FILE} and {FOLLOWER_STATE_FILE}.")
             else:
-                issues = [make_scan_error_item("FOLLOWER_LIST", error_message)]
-                write_report(issues)
-                write_incomplete_result_notice()
                 print(f"{R}[-]{RESET} Instagram follower endpoint did not return the follower list.")
                 print(f"    Error: {follower_error}")
                 if followers:
                     print(f"    Saved {len(followers)} partial followers to {PARTIAL_FOLLOWERS_FILE}.")
-                print(f"{R}[-]{RESET} Cannot proceed. Details written to {REPORT_FILE}.")
+                print(f"{R}[-]{RESET} Cannot proceed.")
                 print(f"    Safer option: create {FOLLOWERS_FILE} with one username per line and retry.")
                 sys.exit(2)
 
     print(f"{G}[+]{RESET} Found {len(followers)} followers. Source: {followers_source}")
 
     print(f"\n{C}[*]{RESET} Analyzing last {POST_LIMIT} posts...")
-    issues = []
     recent_posts, post_list_error = collect_recent_posts(loader.context, logged_in_username, POST_LIMIT)
 
     if post_list_error:
         print(f"{R}[-]{RESET} Could not fully retrieve post list.")
         print(f"    Error: {post_list_error}")
         print(f"    Posts retrieved: {len(recent_posts)}")
-        issues.append(make_scan_error_item("POST_LIST", str(post_list_error)))
 
     if not recent_posts:
-        write_report(issues)
-        write_incomplete_result_notice()
-        print(f"{R}[-]{RESET} No posts to analyze. Details written to {REPORT_FILE}.")
+        print(f"{R}[-]{RESET} No posts to analyze; scan aborted.")
         sys.exit(2)
 
     post_shortcodes = [post.shortcode for post in recent_posts]
@@ -976,8 +943,7 @@ def main():
 
         print(f"\n  {B}-> Post {post_count}/{len(recent_posts)}{RESET}: {post.shortcode} ({post_date})")
 
-        if slow_mode:
-            time.sleep(random.uniform(*SLOW_PRE_FETCH_DELAY))
+        time.sleep(random.uniform(*PRE_FETCH_DELAY))
 
         (like_usernames, likes_fetched), like_error = fetch_with_retries(
             "Likes",
@@ -1025,23 +991,10 @@ def main():
         )
 
         if not likes_complete or not comments_complete:
-            errors = []
             if like_error:
-                errors.append(f"likes: {like_error}")
+                print(f"     {Y}[!]{RESET} Likes incomplete: {like_error}")
             if comment_error:
-                errors.append(f"comments: {comment_error}")
-
-            issues.append(
-                {
-                    "shortcode": post.shortcode,
-                    "date": post_date,
-                    "likes_expected": expected_count_text(likes_expected),
-                    "likes_fetched": likes_fetched,
-                    "comments_expected": expected_count_text(comments_expected),
-                    "comments_fetched": comments_fetched,
-                    "errors": errors,
-                }
-            )
+                print(f"     {Y}[!]{RESET} Comments incomplete: {comment_error}")
         else:
             interacted_users.update(post_interacted_users)
             processed_posts.add(post.shortcode)
@@ -1067,18 +1020,10 @@ def main():
             break
 
         if post_count < len(recent_posts):
-            delay_range = SLOW_POST_DELAY if slow_mode else POST_DELAY
-            time.sleep(random.uniform(*delay_range))
+            time.sleep(random.uniform(*POST_DELAY))
 
     print(f"\n{G}[+]{RESET} {post_count} posts processed (collected: {len(recent_posts)}).")
     print(f"{G}[+]{RESET} Total unique interactions found: {len(interacted_users)}.")
-
-    if issues:
-        print(f"\n{R}[-]{RESET} Scan incomplete; no definitive ghost follower list generated.")
-        print(f"    Details written to {REPORT_FILE}.")
-        write_report(issues)
-        write_incomplete_result_notice()
-        sys.exit(2)
 
     progress_error = remove_file(SCAN_PROGRESS_FILE)
     if progress_error:
