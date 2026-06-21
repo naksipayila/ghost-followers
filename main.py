@@ -356,8 +356,10 @@ def collect_followers(context, user_id, username, slow_mode=False, expected_coun
                 follower_iterator.thaw(follower_state)
                 print(f"{C}[*]{RESET} Resuming follower collection from saved cursor.")
             except Exception as exc:
-                print(f"{Y}[!]{RESET} Could not resume saved follower cursor: {exc}")
-                follower_state = None
+                print(f"{Y}[!]{RESET} Saved follower cursor is stale or expired: {exc}")
+                print(f"{Y}[!]{RESET} Using {len(seed_followers)} previously saved followers without further fetching.")
+                remove_file(FOLLOWER_STATE_FILE)
+                return followers, None
 
         try:
             for fetched_count, follower in enumerate(follower_iterator, 1):
@@ -382,7 +384,8 @@ def collect_followers(context, user_id, username, slow_mode=False, expected_coun
                         delay_range = page_delay
                         wait_text = "waiting"
 
-                    print(f"{C}[*]{RESET} Collected {follower_count} followers; {wait_text} before continuing...")
+                    remaining = f" ({expected_count - follower_count} remaining)" if expected_count else ""
+                    print(f"{C}[*]{RESET} Collected {follower_count}{remaining} followers; {wait_text} before continuing...")
                     time.sleep(random.uniform(*delay_range))
 
             if expected_count is not None and len(followers) < expected_count:
@@ -904,16 +907,24 @@ def main():
             error_message = str(follower_error)
             if followers:
                 error_message += f" Partial followers saved: {len(followers)} in {PARTIAL_FOLLOWERS_FILE}."
-            issues = [make_scan_error_item("FOLLOWER_LIST", error_message)]
-            write_report(issues)
-            write_incomplete_result_notice()
-            print(f"{R}[-]{RESET} Instagram follower endpoint did not return the follower list.")
-            print(f"    Error: {follower_error}")
-            if followers:
-                print(f"    Saved {len(followers)} partial followers to {PARTIAL_FOLLOWERS_FILE}.")
-            print(f"{R}[-]{RESET} Cannot proceed. Details written to {REPORT_FILE}.")
-            print(f"    Safer option: create {FOLLOWERS_FILE} with one username per line and retry.")
-            sys.exit(2)
+            partial_path = Path(PARTIAL_FOLLOWERS_FILE)
+            if followers and partial_path.exists():
+                issues = [make_scan_error_item("FOLLOWER_LIST", error_message)]
+                write_report(issues)
+                print(f"{Y}[!]{RESET} Follower list is incomplete ({len(followers)}/{expected_count_text(expected_follower_count)}).")
+                print(f"    Continuing with available data. Results may be incomplete.")
+                print(f"    To start fresh, delete {PARTIAL_FOLLOWERS_FILE} and {FOLLOWER_STATE_FILE}.")
+            else:
+                issues = [make_scan_error_item("FOLLOWER_LIST", error_message)]
+                write_report(issues)
+                write_incomplete_result_notice()
+                print(f"{R}[-]{RESET} Instagram follower endpoint did not return the follower list.")
+                print(f"    Error: {follower_error}")
+                if followers:
+                    print(f"    Saved {len(followers)} partial followers to {PARTIAL_FOLLOWERS_FILE}.")
+                print(f"{R}[-]{RESET} Cannot proceed. Details written to {REPORT_FILE}.")
+                print(f"    Safer option: create {FOLLOWERS_FILE} with one username per line and retry.")
+                sys.exit(2)
 
     print(f"{G}[+]{RESET} Found {len(followers)} followers. Source: {followers_source}")
 
