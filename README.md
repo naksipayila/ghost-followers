@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="src/icon.png" alt="Ghost Followers logo" width="110">
-</p>
-
 <h1 align="center">Instagram Ghost Follower Detector</h1>
 
 <p align="center">
@@ -13,10 +9,6 @@
   <img alt="Instaloader" src="https://img.shields.io/badge/Instaloader-4.15.1-405DE6">
   <img alt="CLI" src="https://img.shields.io/badge/Interface-CLI-111827">
   <img alt="License" src="https://img.shields.io/badge/License-Unspecified-lightgrey">
-</p>
-
-<p align="center">
-  <img src="src/assets/cli-preview.svg" alt="Ghost Followers CLI preview" width="820">
 </p>
 
 ## Overview
@@ -136,10 +128,7 @@ Local secrets and runtime outputs are excluded through `.gitignore`.
 ```txt
 .
 ├── src/
-│   ├── main.py
-│   ├── icon.png
-│   └── assets/
-│       └── cli-preview.svg
+│   └── main.py
 ├── .gitignore
 ├── README.md
 ├── run.bat
